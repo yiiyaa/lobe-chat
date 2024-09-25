@@ -1,3 +1,4 @@
+import { ProviderIcon } from '@lobehub/icons';
 import { Button } from 'antd';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -5,17 +6,10 @@ import { Center, Flexbox } from 'react-layout-kit';
 
 import { ModelProvider } from '@/libs/agent-runtime';
 import { useChatStore } from '@/store/chat';
+import { GlobalLLMProviderKey } from '@/types/user/settings';
 
-import AnthropicForm from './Anthropic';
 import BedrockForm from './Bedrock';
-import GoogleForm from './Google';
-import GroqForm from './Groq';
-import MistralForm from './Mistral';
-import MoonshotForm from './Moonshot';
-import OpenAIForm from './OpenAI';
-import OpenRouterForm from './OpenRouter';
-import PerplexityForm from './Perplexity';
-import ZhipuForm from './Zhipu';
+import ProviderApiKeyForm from './ProviderApiKeyForm';
 
 interface APIKeyFormProps {
   id: string;
@@ -25,56 +19,60 @@ interface APIKeyFormProps {
 const APIKeyForm = memo<APIKeyFormProps>(({ id, provider }) => {
   const { t } = useTranslation('error');
 
-  const [resend, deleteMessage] = useChatStore((s) => [s.internalResendMessage, s.deleteMessage]);
+  const [resend, deleteMessage] = useChatStore((s) => [s.regenerateMessage, s.deleteMessage]);
 
-  const action = useMemo(() => {
-    switch (provider as ModelProvider) {
-      case ModelProvider.Bedrock: {
-        return <BedrockForm />;
+  const apiKeyPlaceholder = useMemo(() => {
+    switch (provider) {
+      case ModelProvider.Anthropic: {
+        return 'sk-ant_*****************************';
       }
 
-      case ModelProvider.Google: {
-        return <GoogleForm />;
-      }
-
-      case ModelProvider.ZhiPu: {
-        return <ZhipuForm />;
-      }
-
-      case ModelProvider.Mistral: {
-        return <MistralForm />;
-      }
-
-      case ModelProvider.Moonshot: {
-        return <MoonshotForm />;
+      case ModelProvider.OpenRouter: {
+        return 'sk-or-********************************';
       }
 
       case ModelProvider.Perplexity: {
-        return <PerplexityForm />;
+        return 'pplx-********************************';
       }
 
-      case ModelProvider.Anthropic: {
-        return <AnthropicForm />;
+      case ModelProvider.ZhiPu: {
+        return '*********************.*************';
       }
 
       case ModelProvider.Groq: {
-        return <GroqForm />;
-      }
-      
-      case ModelProvider.OpenRouter: {
-        return <OpenRouterForm />;
+        return 'gsk_*****************************';
       }
 
-      default:
-      case ModelProvider.OpenAI: {
-        return <OpenAIForm />;
+      case ModelProvider.DeepSeek: {
+        return 'sk_******************************';
+      }
+
+      case ModelProvider.Qwen: {
+        return 'sk-********************************';
+      }
+
+      case ModelProvider.Github: {
+        return 'ghp_*****************************';
+      }
+
+      default: {
+        return '*********************************';
       }
     }
   }, [provider]);
 
   return (
     <Center gap={16} style={{ maxWidth: 300 }}>
-      {action}
+      {provider === ModelProvider.Bedrock ? (
+        <BedrockForm />
+      ) : (
+        <ProviderApiKeyForm
+          apiKeyPlaceholder={apiKeyPlaceholder}
+          avatar={<ProviderIcon provider={provider} size={80} type={'avatar'} />}
+          provider={provider as GlobalLLMProviderKey}
+          showEndpoint={provider === ModelProvider.OpenAI}
+        />
+      )}
       <Flexbox gap={12} width={'100%'}>
         <Button
           block

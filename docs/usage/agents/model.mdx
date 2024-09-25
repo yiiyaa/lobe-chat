@@ -1,6 +1,15 @@
 ---
-title: LLM Guide
-description: Explore the capabilities of ChatGPT models from gpt-3.5-turbo to gpt-4-32k, understanding their speed, context limits, and cost. Learn about model parameters like temperature and top-p for better output.
+title: LobeChat Model Config Guide
+description: >-
+  Explore the capabilities of ChatGPT models from gpt-3.5-turbo to gpt-4-32k,
+  understanding their speed, context limits, and cost. Learn about model
+  parameters like temperature and top-p for better output.
+tags:
+  - ChatGPT Models
+  - Model Parameters
+  - Neural Networks
+  - Language Understanding
+  - Generation Capabilities
 ---
 
 # Model Guide
@@ -8,7 +17,6 @@ description: Explore the capabilities of ChatGPT models from gpt-3.5-turbo to gp
 ## ChatGPT
 
 - **gpt-3.5-turbo**: Currently the fastest generating ChatGPT model, it is faster but may sacrifice some text quality, with a context length of 4k.
-- **gpt-3.5-turbo-16k**: Similar to gpt-4, the context limit is increased to 16k tokens, with a higher cost.
 - **gpt-4**: ChatGPT 4.0 has improved language understanding and generation capabilities compared to 3.5. It can better understand context and context, and generate more accurate and natural responses. This is thanks to improvements in the GPT-4 model, including better language modeling and deeper semantic understanding, but it may be slower than other models, with a context length of 8k.
 - **gpt-4-32k**: Similar to gpt-4, the context limit is increased to 32k tokens, with a higher cost.
 
@@ -35,11 +43,11 @@ This parameter controls the randomness of the model's output. The higher the val
 
 ### `top_p`
 
-Top\_p is also a sampling parameter, but it differs from temperature in its sampling method. Before outputting, the model generates a bunch of tokens, and these tokens are ranked based on their quality. In the top-p sampling mode, the candidate word list is dynamic, and tokens are selected from the tokens based on a percentage. Top\_p introduces randomness in token selection, allowing other high-scoring tokens to have a chance of being selected, rather than always choosing the highest-scoring one.
+Top_p is also a sampling parameter, but it differs from temperature in its sampling method. Before outputting, the model generates a bunch of tokens, and these tokens are ranked based on their quality. In the top-p sampling mode, the candidate word list is dynamic, and tokens are selected from the tokens based on a percentage. Top_p introduces randomness in token selection, allowing other high-scoring tokens to have a chance of being selected, rather than always choosing the highest-scoring one.
 
 <Callout>
-  Top\_p is similar to randomness, and it is generally not recommended to change it together with the
-  randomness of temperature.
+  Top\_p is similar to randomness, and it is generally not recommended to change it together with
+  the randomness of temperature.
 </Callout>
 
 <br />

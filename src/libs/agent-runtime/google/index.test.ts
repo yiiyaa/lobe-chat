@@ -1,17 +1,18 @@
 // @vitest-environment edge-runtime
-import { GenerateContentRequest, GenerateContentStreamResult, Part } from '@google/generative-ai';
+import { FunctionDeclarationSchemaType, FunctionDeclarationsTool } from '@google/generative-ai';
+import { JSONSchema7 } from 'json-schema';
 import OpenAI from 'openai';
-import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ChatStreamCallbacks, OpenAIChatMessage } from '@/libs/agent-runtime';
+import { OpenAIChatMessage } from '@/libs/agent-runtime';
+import * as imageToBase64Module from '@/utils/imageToBase64';
 
 import * as debugStreamModule from '../utils/debugStream';
 import { LobeGoogleAI } from './index';
 
 const provider = 'google';
-const defaultBaseURL = 'https://api.moonshot.cn/v1';
-const bizErrorType = 'GoogleBizError';
-const invalidErrorType = 'InvalidGoogleAPIKey';
+const bizErrorType = 'ProviderBizError';
+const invalidErrorType = 'InvalidProviderAPIKey';
 
 // Mock the console.error to avoid polluting test output
 vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -290,7 +291,7 @@ describe('LobeGoogleAI', () => {
           });
         } catch (e) {
           expect(e).toEqual({
-            errorType: 'GoogleBizError',
+            errorType: bizErrorType,
             provider,
             error: {
               message: 'Generic Error',
@@ -303,31 +304,117 @@ describe('LobeGoogleAI', () => {
 
   describe('private method', () => {
     describe('convertContentToGooglePart', () => {
-      it('should throw TypeError when image URL does not contain base64 data', () => {
-        // 提供一个不包含base64数据的图像URL
-        const invalidImageUrl = 'http://example.com/image.png';
+      it('should handle text type messages', async () => {
+        const result = await instance['convertContentToGooglePart']({
+          type: 'text',
+          text: 'Hello',
+        });
+        expect(result).toEqual({ text: 'Hello' });
+      });
 
-        expect(() =>
+      it('should handle base64 type images', async () => {
+        const base64Image =
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg==';
+        const result = await instance['convertContentToGooglePart']({
+          type: 'image_url',
+          image_url: { url: base64Image },
+        });
+
+        expect(result).toEqual({
+          inlineData: {
+            data: 'iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg==',
+            mimeType: 'image/png',
+          },
+        });
+      });
+
+      it('should handle URL type images', async () => {
+        const imageUrl = 'http://example.com/image.png';
+        const mockBase64 = 'mockBase64Data';
+
+        // Mock the imageUrlToBase64 function
+        vi.spyOn(imageToBase64Module, 'imageUrlToBase64').mockResolvedValueOnce({
+          base64: mockBase64,
+          mimeType: 'image/png',
+        });
+
+        const result = await instance['convertContentToGooglePart']({
+          type: 'image_url',
+          image_url: { url: imageUrl },
+        });
+
+        expect(result).toEqual({
+          inlineData: {
+            data: mockBase64,
+            mimeType: 'image/png',
+          },
+        });
+
+        expect(imageToBase64Module.imageUrlToBase64).toHaveBeenCalledWith(imageUrl);
+      });
+
+      it('should throw TypeError for unsupported image URL types', async () => {
+        const unsupportedImageUrl = 'unsupported://example.com/image.png';
+
+        await expect(
           instance['convertContentToGooglePart']({
             type: 'image_url',
-            image_url: { url: invalidImageUrl },
+            image_url: { url: unsupportedImageUrl },
           }),
-        ).toThrow(TypeError);
+        ).rejects.toThrow(TypeError);
       });
     });
 
     describe('buildGoogleMessages', () => {
-      it('should use default text model when no images are included in messages', () => {
+      it('get default result with gemini-pro', async () => {
+        const messages: OpenAIChatMessage[] = [{ content: 'Hello', role: 'user' }];
+
+        const contents = await instance['buildGoogleMessages'](messages, 'gemini-pro');
+
+        expect(contents).toHaveLength(1);
+        expect(contents).toEqual([{ parts: [{ text: 'Hello' }], role: 'user' }]);
+      });
+
+      it('messages should end with user if using gemini-pro', async () => {
         const messages: OpenAIChatMessage[] = [
           { content: 'Hello', role: 'user' },
           { content: 'Hi', role: 'assistant' },
         ];
-        const model = 'text-davinci-003';
 
-        // 调用 buildGoogleMessages 方法
-        const { contents, model: usedModel } = instance['buildGoogleMessages'](messages, model);
+        const contents = await instance['buildGoogleMessages'](messages, 'gemini-1.0');
 
-        expect(usedModel).toEqual('gemini-pro'); // 假设 'gemini-pro' 是默认文本模型
+        expect(contents).toHaveLength(3);
+        expect(contents).toEqual([
+          { parts: [{ text: 'Hello' }], role: 'user' },
+          { parts: [{ text: 'Hi' }], role: 'model' },
+          { parts: [{ text: '' }], role: 'user' },
+        ]);
+      });
+
+      it('should include system role if there is a system role prompt', async () => {
+        const messages: OpenAIChatMessage[] = [
+          { content: 'you are ChatGPT', role: 'system' },
+          { content: 'Who are you', role: 'user' },
+        ];
+
+        const contents = await instance['buildGoogleMessages'](messages, 'gemini-1.0');
+
+        expect(contents).toHaveLength(3);
+        expect(contents).toEqual([
+          { parts: [{ text: 'you are ChatGPT' }], role: 'user' },
+          { parts: [{ text: '' }], role: 'model' },
+          { parts: [{ text: 'Who are you' }], role: 'user' },
+        ]);
+      });
+
+      it('should not modify the length if model is gemini-1.5-pro', async () => {
+        const messages: OpenAIChatMessage[] = [
+          { content: 'Hello', role: 'user' },
+          { content: 'Hi', role: 'assistant' },
+        ];
+
+        const contents = await instance['buildGoogleMessages'](messages, 'gemini-1.5-pro-latest');
+
         expect(contents).toHaveLength(2);
         expect(contents).toEqual([
           { parts: [{ text: 'Hello' }], role: 'user' },
@@ -335,7 +422,7 @@ describe('LobeGoogleAI', () => {
         ]);
       });
 
-      it('should use specified model when images are included in messages', () => {
+      it('should use specified model when images are included in messages', async () => {
         const messages: OpenAIChatMessage[] = [
           {
             content: [
@@ -345,12 +432,11 @@ describe('LobeGoogleAI', () => {
             role: 'user',
           },
         ];
-        const model = 'gemini-pro-vision';
+        const model = 'gemini-1.5-flash-latest';
 
         // 调用 buildGoogleMessages 方法
-        const { contents, model: usedModel } = instance['buildGoogleMessages'](messages, model);
+        const contents = await instance['buildGoogleMessages'](messages, model);
 
-        expect(usedModel).toEqual(model);
         expect(contents).toHaveLength(1);
         expect(contents).toEqual([
           {
@@ -358,6 +444,247 @@ describe('LobeGoogleAI', () => {
             role: 'user',
           },
         ]);
+      });
+    });
+
+    describe('buildGoogleTools', () => {
+      it('should return undefined when tools is undefined or empty', () => {
+        expect(instance['buildGoogleTools'](undefined)).toBeUndefined();
+        expect(instance['buildGoogleTools']([])).toBeUndefined();
+      });
+
+      it('should correctly convert ChatCompletionTool to GoogleFunctionCallTool', () => {
+        const tools: OpenAI.ChatCompletionTool[] = [
+          {
+            function: {
+              name: 'testTool',
+              description: 'A test tool',
+              parameters: {
+                type: 'object',
+                properties: {
+                  param1: { type: 'string' },
+                  param2: { type: 'number' },
+                },
+                required: ['param1'],
+              },
+            },
+            type: 'function',
+          },
+        ];
+
+        const googleTools = instance['buildGoogleTools'](tools);
+
+        expect(googleTools).toHaveLength(1);
+        expect((googleTools![0] as FunctionDeclarationsTool).functionDeclarations![0]).toEqual({
+          name: 'testTool',
+          description: 'A test tool',
+          parameters: {
+            type: FunctionDeclarationSchemaType.OBJECT,
+            properties: {
+              param1: { type: FunctionDeclarationSchemaType.STRING },
+              param2: { type: FunctionDeclarationSchemaType.NUMBER },
+            },
+            required: ['param1'],
+          },
+        });
+      });
+    });
+
+    describe('convertSchemaObject', () => {
+      it('should correctly convert object schema', () => {
+        const schema: JSONSchema7 = {
+          type: 'object',
+          properties: {
+            prop1: { type: 'string' },
+            prop2: { type: 'number' },
+          },
+        };
+
+        const converted = instance['convertSchemaObject'](schema);
+
+        expect(converted).toEqual({
+          type: FunctionDeclarationSchemaType.OBJECT,
+          properties: {
+            prop1: { type: FunctionDeclarationSchemaType.STRING },
+            prop2: { type: FunctionDeclarationSchemaType.NUMBER },
+          },
+        });
+      });
+
+      it('should correctly convert nested schema', () => {
+        const schema: JSONSchema7 = {
+          type: 'object',
+          properties: {
+            nested: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  prop: { type: 'string' },
+                },
+              },
+            },
+          },
+        };
+
+        const converted = instance['convertSchemaObject'](schema);
+
+        expect(converted).toEqual({
+          type: FunctionDeclarationSchemaType.OBJECT,
+          properties: {
+            nested: {
+              type: FunctionDeclarationSchemaType.ARRAY,
+              items: {
+                type: FunctionDeclarationSchemaType.OBJECT,
+                properties: {
+                  prop: { type: FunctionDeclarationSchemaType.STRING },
+                },
+              },
+            },
+          },
+        });
+      });
+
+      it('should correctly convert array schema', () => {
+        const schema: JSONSchema7 = {
+          type: 'array',
+          items: { type: 'string' },
+        };
+        const converted = instance['convertSchemaObject'](schema);
+        expect(converted).toEqual({
+          type: FunctionDeclarationSchemaType.ARRAY,
+          items: { type: FunctionDeclarationSchemaType.STRING },
+        });
+      });
+
+      it('should correctly convert string schema', () => {
+        const schema: JSONSchema7 = { type: 'string' };
+        const converted = instance['convertSchemaObject'](schema);
+        expect(converted).toEqual({ type: FunctionDeclarationSchemaType.STRING });
+      });
+
+      it('should correctly convert number schema', () => {
+        const schema: JSONSchema7 = { type: 'number' };
+        const converted = instance['convertSchemaObject'](schema);
+        expect(converted).toEqual({ type: FunctionDeclarationSchemaType.NUMBER });
+      });
+
+      it('should correctly convert boolean schema', () => {
+        const schema: JSONSchema7 = { type: 'boolean' };
+        const converted = instance['convertSchemaObject'](schema);
+        expect(converted).toEqual({ type: FunctionDeclarationSchemaType.BOOLEAN });
+      });
+    });
+
+    describe('convertOAIMessagesToGoogleMessage', () => {
+      it('should correctly convert assistant message', async () => {
+        const message: OpenAIChatMessage = {
+          role: 'assistant',
+          content: 'Hello',
+        };
+
+        const converted = await instance['convertOAIMessagesToGoogleMessage'](message);
+
+        expect(converted).toEqual({
+          role: 'model',
+          parts: [{ text: 'Hello' }],
+        });
+      });
+
+      it('should correctly convert user message', async () => {
+        const message: OpenAIChatMessage = {
+          role: 'user',
+          content: 'Hi',
+        };
+
+        const converted = await instance['convertOAIMessagesToGoogleMessage'](message);
+
+        expect(converted).toEqual({
+          role: 'user',
+          parts: [{ text: 'Hi' }],
+        });
+      });
+
+      it('should correctly convert message with inline base64 image parts', async () => {
+        const message: OpenAIChatMessage = {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Check this image:' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,...' } },
+          ],
+        };
+
+        const converted = await instance['convertOAIMessagesToGoogleMessage'](message);
+
+        expect(converted).toEqual({
+          role: 'user',
+          parts: [
+            { text: 'Check this image:' },
+            { inlineData: { data: '...', mimeType: 'image/png' } },
+          ],
+        });
+      });
+      it.skip('should correctly convert message with image url parts', async () => {
+        const message: OpenAIChatMessage = {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Check this image:' },
+            { type: 'image_url', image_url: { url: 'https://image-file.com' } },
+          ],
+        };
+
+        const converted = await instance['convertOAIMessagesToGoogleMessage'](message);
+
+        expect(converted).toEqual({
+          role: 'user',
+          parts: [
+            { text: 'Check this image:' },
+            { inlineData: { data: '...', mimeType: 'image/png' } },
+          ],
+        });
+      });
+
+      it('should correctly convert function call message', async () => {
+        const message = {
+          role: 'assistant',
+          tool_calls: [
+            {
+              id: 'call_1',
+              function: {
+                name: 'get_current_weather',
+                arguments: JSON.stringify({ location: 'London', unit: 'celsius' }),
+              },
+              type: 'function',
+            },
+          ],
+        } as OpenAIChatMessage;
+
+        const converted = await instance['convertOAIMessagesToGoogleMessage'](message);
+        expect(converted).toEqual({
+          role: 'function',
+          parts: [
+            {
+              functionCall: {
+                name: 'get_current_weather',
+                args: { location: 'London', unit: 'celsius' },
+              },
+            },
+          ],
+        });
+      });
+
+      it('should correctly handle empty content', async () => {
+        const message: OpenAIChatMessage = {
+          role: 'user',
+          content: '' as any, // explicitly set as empty string
+        };
+
+        const converted = await instance['convertOAIMessagesToGoogleMessage'](message);
+
+        expect(converted).toEqual({
+          role: 'user',
+          parts: [{ text: '' }],
+        });
       });
     });
   });

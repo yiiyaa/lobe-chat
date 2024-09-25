@@ -1,21 +1,32 @@
 import { LobeChatPluginManifest, LobeChatPluginMeta } from '@lobehub/chat-plugin-sdk';
 import { act, renderHook } from '@testing-library/react';
-import { notification } from 'antd';
 import useSWR from 'swr';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { notification } from '@/components/AntdStaticMethods';
 import { pluginService } from '@/services/plugin';
-import { LobeToolCustomPlugin } from '@/types/tool/plugin';
+import { toolService } from '@/services/tool';
 
 import { useToolStore } from '../../store';
 
-// Mock the pluginService.getPluginList method
+// Mock necessary modules and functions
+vi.mock('@/components/AntdStaticMethods', () => ({
+  notification: {
+    error: vi.fn(),
+  },
+}));
+// Mock the pluginService.getToolList method
 vi.mock('@/services/plugin', () => ({
   pluginService: {
-    getPluginManifest: vi.fn(),
-    getPluginList: vi.fn(),
     uninstallPlugin: vi.fn(),
     installPlugin: vi.fn(),
+  },
+}));
+
+vi.mock('@/services/tool', () => ({
+  toolService: {
+    getToolManifest: vi.fn(),
+    getToolList: vi.fn(),
   },
 }));
 
@@ -91,8 +102,8 @@ describe('useToolStore:pluginStore', () => {
   describe('loadPluginStore', () => {
     it('should load plugin list and update state', async () => {
       // Given
-      const pluginListMock = { plugins: [{ identifier: 'plugin1' }, { identifier: 'plugin2' }] };
-      (pluginService.getPluginList as Mock).mockResolvedValue(pluginListMock);
+      const pluginListMock = [{ identifier: 'plugin1' }, { identifier: 'plugin2' }];
+      (toolService.getToolList as Mock).mockResolvedValue(pluginListMock);
 
       // When
       let pluginList;
@@ -101,15 +112,15 @@ describe('useToolStore:pluginStore', () => {
       });
 
       // Then
-      expect(pluginService.getPluginList).toHaveBeenCalled();
+      expect(toolService.getToolList).toHaveBeenCalled();
       expect(pluginList).toEqual(pluginListMock);
-      expect(useToolStore.getState().pluginStoreList).toEqual(pluginListMock.plugins);
+      expect(useToolStore.getState().pluginStoreList).toEqual(pluginListMock);
     });
 
     it('should handle errors when loading plugin list', async () => {
       // Given
       const error = new Error('Failed to load plugin list');
-      (pluginService.getPluginList as Mock).mockRejectedValue(error);
+      (toolService.getToolList as Mock).mockRejectedValue(error);
 
       // When
       let pluginList;
@@ -123,7 +134,7 @@ describe('useToolStore:pluginStore', () => {
       }
 
       // Then
-      expect(pluginService.getPluginList).toHaveBeenCalled();
+      expect(toolService.getToolList).toHaveBeenCalled();
       expect(errorOccurred).toBe(true);
       expect(pluginList).toBeUndefined();
       // Ensure the state is not updated with an undefined value
@@ -134,7 +145,7 @@ describe('useToolStore:pluginStore', () => {
   describe('useFetchPluginStore', () => {
     it('should use SWR to fetch plugin store', async () => {
       // Given
-      const pluginListMock = { plugins: [{ identifier: 'plugin1' }, { identifier: 'plugin2' }] };
+      const pluginListMock = [{ identifier: 'plugin1' }, { identifier: 'plugin2' }];
       (useSWR as Mock).mockReturnValue({
         data: pluginListMock,
         error: null,
@@ -145,7 +156,11 @@ describe('useToolStore:pluginStore', () => {
       const { result } = renderHook(() => useToolStore.getState().useFetchPluginStore());
 
       // Then
-      expect(useSWR).toHaveBeenCalledWith('loadPluginStore', expect.any(Function));
+      expect(useSWR).toHaveBeenCalledWith('loadPluginStore', expect.any(Function), {
+        fallbackData: [],
+        revalidateOnFocus: false,
+        suspense: true,
+      });
       expect(result.current.data).toEqual(pluginListMock);
       expect(result.current.error).toBeNull();
       expect(result.current.isValidating).toBe(false);
@@ -164,7 +179,11 @@ describe('useToolStore:pluginStore', () => {
       const { result } = renderHook(() => useToolStore.getState().useFetchPluginStore());
 
       // Then
-      expect(useSWR).toHaveBeenCalledWith('loadPluginStore', expect.any(Function));
+      expect(useSWR).toHaveBeenCalledWith('loadPluginStore', expect.any(Function), {
+        fallbackData: [],
+        revalidateOnFocus: false,
+        suspense: true,
+      });
       expect(result.current.data).toBeNull();
       expect(result.current.error).toEqual(error);
       expect(result.current.isValidating).toBe(false);
@@ -173,8 +192,6 @@ describe('useToolStore:pluginStore', () => {
 
   describe('installPlugin', () => {
     it('should install a plugin with valid manifest', async () => {
-      vi.spyOn(notification, 'error');
-
       const pluginIdentifier = 'plugin1';
 
       const originalUpdateInstallLoadingState = useToolStore.getState().updateInstallLoadingState;
@@ -221,14 +238,14 @@ describe('useToolStore:pluginStore', () => {
         },
         version: '1',
       };
-      (pluginService.getPluginManifest as Mock).mockResolvedValue(pluginManifestMock);
+      (toolService.getToolManifest as Mock).mockResolvedValue(pluginManifestMock);
 
       await act(async () => {
         await useToolStore.getState().installPlugin(pluginIdentifier);
       });
 
       // Then
-      expect(pluginService.getPluginManifest).toHaveBeenCalled();
+      expect(toolService.getToolManifest).toHaveBeenCalled();
       expect(notification.error).not.toHaveBeenCalled();
       expect(updateInstallLoadingStateMock).toHaveBeenCalledTimes(2);
       expect(pluginService.installPlugin).toHaveBeenCalledWith({
@@ -250,8 +267,7 @@ describe('useToolStore:pluginStore', () => {
       const error = new TypeError('noManifest');
 
       // Mock necessary modules and functions
-      vi.spyOn(notification, 'error');
-      (pluginService.getPluginManifest as Mock).mockRejectedValue(error);
+      (toolService.getToolManifest as Mock).mockRejectedValue(error);
 
       useToolStore.setState({
         pluginStoreList: [
@@ -295,7 +311,7 @@ describe('useToolStore:pluginStore', () => {
 
       const plugins = ['plugin1', 'plugin2'];
 
-      (pluginService.getPluginManifest as Mock).mockResolvedValue(pluginManifestMock);
+      (toolService.getToolManifest as Mock).mockResolvedValue(pluginManifestMock);
 
       // When
       await act(async () => {

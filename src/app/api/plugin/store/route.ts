@@ -1,6 +1,5 @@
 import { DEFAULT_LANG } from '@/const/locale';
-
-import { PluginStore } from './Store';
+import { PluginStore } from '@/server/modules/PluginStore';
 
 export const runtime = 'edge';
 
@@ -11,7 +10,7 @@ export const GET = async (req: Request) => {
 
   let res: Response;
 
-  res = await fetch(pluginStore.getPluginIndexUrl(locale as any), { next: { revalidate: 3600 } });
+  res = await fetch(pluginStore.getPluginIndexUrl(locale as any));
 
   if (res.status === 404) {
     res = await fetch(pluginStore.getPluginIndexUrl(DEFAULT_LANG));

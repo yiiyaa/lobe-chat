@@ -1,19 +1,15 @@
-import { OpenAIStream, StreamingTextResponse } from 'ai';
 import OpenAI, { ClientOptions } from 'openai';
 
 import { LobeRuntimeAI } from '../BaseAI';
 import { AgentRuntimeErrorType } from '../error';
-import {
-  ChatCompetitionOptions,
-  ChatStreamPayload,
-  ModelProvider,
-  OpenAIChatMessage,
-} from '../types';
+import { ChatCompetitionOptions, ChatStreamPayload, ModelProvider } from '../types';
 import { AgentRuntimeError } from '../utils/createError';
 import { debugStream } from '../utils/debugStream';
 import { desensitizeUrl } from '../utils/desensitizeUrl';
 import { handleOpenAIError } from '../utils/handleOpenAIError';
-import { parseDataUri } from '../utils/uriParser';
+import { convertOpenAIMessages } from '../utils/openaiHelpers';
+import { StreamingResponse } from '../utils/response';
+import { OpenAIStream } from '../utils/streams';
 import { generateApiToken } from './authToken';
 
 const DEFAULT_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4';
@@ -28,9 +24,9 @@ export class LobeZhipuAI implements LobeRuntimeAI {
     this.baseURL = this.client.baseURL;
   }
 
-  static async fromAPIKey({ apiKey, baseURL = DEFAULT_BASE_URL, ...res }: ClientOptions) {
+  static async fromAPIKey({ apiKey, baseURL = DEFAULT_BASE_URL, ...res }: ClientOptions = {}) {
     const invalidZhipuAPIKey = AgentRuntimeError.createError(
-      AgentRuntimeErrorType.InvalidZhipuAPIKey,
+      AgentRuntimeErrorType.InvalidProviderAPIKey,
     );
 
     if (!apiKey) throw invalidZhipuAPIKey;
@@ -51,7 +47,7 @@ export class LobeZhipuAI implements LobeRuntimeAI {
 
   async chat(payload: ChatStreamPayload, options?: ChatCompetitionOptions) {
     try {
-      const params = this.buildCompletionsParams(payload);
+      const params = await this.buildCompletionsParams(payload);
 
       const response = await this.client.chat.completions.create(
         params as unknown as OpenAI.ChatCompletionCreateParamsStreaming,
@@ -63,13 +59,13 @@ export class LobeZhipuAI implements LobeRuntimeAI {
         debugStream(debug.toReadableStream()).catch(console.error);
       }
 
-      return new StreamingTextResponse(OpenAIStream(prod, options?.callback), {
+      return StreamingResponse(OpenAIStream(prod, options?.callback), {
         headers: options?.headers,
       });
     } catch (error) {
       const { errorResult, RuntimeError } = handleOpenAIError(error);
 
-      const errorType = RuntimeError || AgentRuntimeErrorType.ZhipuBizError;
+      const errorType = RuntimeError || AgentRuntimeErrorType.ProviderBizError;
       let desensitizedEndpoint = this.baseURL;
 
       if (this.baseURL !== DEFAULT_BASE_URL) {
@@ -84,11 +80,11 @@ export class LobeZhipuAI implements LobeRuntimeAI {
     }
   }
 
-  private buildCompletionsParams(payload: ChatStreamPayload) {
+  private async buildCompletionsParams(payload: ChatStreamPayload) {
     const { messages, temperature, top_p, ...params } = payload;
 
     return {
-      messages: messages.map((m) => this.transformMessage(m)) as any,
+      messages: await convertOpenAIMessages(messages as any),
       ...params,
       do_sample: temperature === 0,
       stream: true,
@@ -98,32 +94,6 @@ export class LobeZhipuAI implements LobeRuntimeAI {
       top_p: top_p === 1 ? 0.99 : top_p,
     };
   }
-
-  // TODO: 临时处理，后续需要移除
-  private transformMessage = (message: OpenAIChatMessage): OpenAIChatMessage => {
-    return {
-      ...message,
-      content:
-        typeof message.content === 'string'
-          ? message.content
-          : message.content.map((c) => {
-              switch (c.type) {
-                default:
-                case 'text': {
-                  return c;
-                }
-
-                case 'image_url': {
-                  const { base64 } = parseDataUri(c.image_url.url);
-                  return {
-                    image_url: { ...c.image_url, url: base64 || c.image_url.url },
-                    type: 'image_url',
-                  };
-                }
-              }
-            }),
-    };
-  };
 }
 
 export default LobeZhipuAI;
